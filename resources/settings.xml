@@ -10,5 +10,6 @@
     </category>
     <category label="30309">
         <setting id="url_base" type="text" label="30307" default="" />
+	<setting id="auto_add_albums" type="bool" label="Automatically add artist albums" default="true"/>
     </category>
 </settings>
