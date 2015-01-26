@@ -17,9 +17,11 @@
 #    along with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
+import os
+
 from xbmcswift2 import Plugin, xbmcgui
 from resources.lib.api import \
-    CouchPotatoApi, AuthenticationError, ConnectionError
+    HeadphonesApi, AuthenticationError, ConnectionError
 
 STRINGS = {
     # Root menu
@@ -77,8 +79,168 @@ plugin = Plugin()
 
 
 @plugin.route('/')
-def show_movies():
+def main_menu():
+    items = [ 
+        { 'label' : 'Add Artist', 'path' : plugin.url_for('search_artist'), },
+        { 'label' : 'Browse Artists', 'path' : plugin.url_for('show_artists'), },
+        { 'label' : 'Wanted', 'path' : plugin.url_for('show_wanted', update = True), },
+        { 'label' : 'Snatched', 'path' : plugin.url_for('show_snatched'), },
+    ]
 
+    return items
+
+@plugin.route('/search_artist/')
+def search_artist():
+
+    #instr = xbmcgui.Dialog().input('Search for Artist:')
+    instr = "The Bouncing Souls"
+    
+    if instr != '':
+        plugin.set_content('artists')
+        search_results = api.find_artist(instr)
+        #for result in search_results:
+        #    print result
+
+        items = [ { 'label' : result.get('name'), 
+            'path' : plugin.url_for('add_artist', 
+                artist_id = result.get('id') ),
+            #'artist' : result.get('name'),
+            } for result in search_results 
+        ]
+        sort_methods = ['artist', ]
+        return plugin.finish(items, sort_methods = sort_methods)
+    pass
+
+@plugin.route('/add_artist/<artist_id>/')
+def add_artist(artist_id):
+    api.add_artist(artist_id)
+
+
+@plugin.route('/wanted/<update>/')
+def show_wanted(update=True):
+    items = []
+    plugin.set_content('albums')
+
+    if update:
+        wanted = plugin.get_storage('wanted')
+        wanted.clear()
+        wanted_albums = api.get_wanted() # API hit
+    else:
+        wanted = plugin.get_storage('wanted')
+
+    for wanted_album in wanted_albums:
+        album_title = wanted_album['AlbumTitle'].encode('utf-8')
+        artist_name = wanted_album['ArtistName'].encode('utf-8')
+        album_id = wanted_album['AlbumID'].encode('utf-8')
+
+        wanted[album_id] = wanted_album
+
+        print('Processing album: %s' % album_title)
+
+        # while it would be nice to have this functionality, the performance
+        # decrease from the repeated DB hits isn't worth it
+        #
+        #havetracks = 0
+        #album = api.get_album(wanted_album.get('AlbumID')) # API hit
+        #totaltracks = len(album.get('tracks'))
+
+        #for track in album.get('tracks'):
+        #    if track.get('Location') != None:
+        #        havetracks += 1
+
+        #label = '%s - %s (%d / %d)' % (artist_name, album_title, havetracks,
+        #        totaltracks)
+        label = '%s - %s' % (artist_name, album_title)
+
+        items.append( {
+            'label' : label,
+            'path' : plugin.url_for('remove_wanted_album_dialog', 
+                artist_name = artist_name, album_title = album_title, 
+                album_id = album_id),
+            'is_playable' : False,
+            'info' : {
+                'artist' : [artist_name,],
+                'album' : album_title,
+                },
+            'replace_context_menu' : True,
+            'context_menu' : [
+                ( 'Remove from Wanted', 'XBMC.RunPlugin(%s)' % plugin.url_for(
+                    'remove_wanted_album_dialog', artist_name = artist_name,
+                    album_title = album_title, album_id = album_id) ),
+                ],
+            'properties' : { 
+                'album_id' : album_id,
+                }
+            }, 
+            )
+    wanted.sync()
+    return plugin.finish(items, sort_methods = ['artist', 'album',])
+
+@plugin.route('/wanted/<artist_name>/<album_title>/<album_id>/')
+def remove_wanted_album_dialog(artist_name, album_title, album_id):
+    if xbmcgui.Dialog().yesno('Headphones Manager',
+            'Remove this album from wanted albums?', '\'%s\' by \'%s\'' % (album_title, artist_name)):
+        api.unqueue_album(album_id)
+        wanted = plugin.get_storage('wanted')
+        wanted.pop(album_id)
+        wanted.sync()
+        plugin.redirect(plugin.url_for('show_wanted', update = False))
+
+
+@plugin.route('/queue/')
+def show_snatched():
+    pass
+
+@plugin.route('/artist/<artist_id>/')
+def show_artist_albums(artist_id):
+    items = []
+
+    plugin.set_content('albums')
+
+    artist = api.get_artist(artist_id)
+
+    for album in artist.get('albums'):
+        artist_name = album.get('ArtistName')
+        album_title = album.get('AlbumTitle')
+        album_id = album.get('AlbumID')
+
+        album_info = api.get_album(album_id)
+
+        havetracks = 0
+
+        tracks = album_info.get('tracks')
+        totaltracks = len(tracks)
+
+        for track in tracks:
+            if track.get('Location') != None:
+                havetracks += 1
+
+        label = album.get('AlbumTitle') + ' (%d / %d)' % (havetracks, totaltracks)
+
+        #thumbnail = '/opt/headphones/' + api.get_album_art(album_id)
+        thumbnail = '/media/Media/Music_beets/' + artist_name + '/' + album_title + '/cover.jpg'
+        print album_title.encode('unicode-escape') + ': ' + thumbnail.encode('unicode-escape')
+        if not os.access(thumbnail, os.F_OK):
+            print ' DOES NOT EXIST'
+        elif not os.access(thumbnail, os.R_OK):
+            print ' READ ONLY'
+
+        items.append( 
+                { 'label' : label, 
+                    'thumbnail' : thumbnail, 
+                    'path' : plugin.url_for('add_wanted', album_id = album_id)
+            }
+        )
+
+    return items
+
+@plugin.route('/add_wanted/<album_id>/')
+def add_album_to_wanted():
+    api.add_wanted
+    
+
+@plugin.route('/artists/')
+def show_artists():
     def context_menu_movie(movie_id, movie_title):
         return [
             (
@@ -129,13 +291,46 @@ def show_movies():
             )
         ]
 
-
     releases = plugin.get_storage('releases')
     releases.clear()
     items = []
     plugin.set_content('artists')
-    artists = api.get_index().get('ArtistName')
-    print 'artists: ' + artists
+    artists = api.get_index()
+    print '%d artists: ' % len(artists)
+
+    i = 0
+    for i, artist in enumerate(artists):
+        print ' > ' + artist['ArtistName'].encode('unicode-escape')
+        artist_id = str(artist['ArtistID'])
+        have_tracks = int(artist['HaveTracks'])
+        total_tracks = int(artist['TotalTracks'])
+        artist_name = artist['ArtistName'].encode('unicode-escape')
+
+        try:
+            thumb = api.get_artist_art(artist_id).encode('unicode-escape')
+            thumbnail = '/opt/headphones/' + thumb
+            print 'Artist: ' + artist_name + ', thumbnail: ' + thumbnail
+        except:
+            thumbnail = None
+
+        label = '%s (%d / %d)' % (artist_name, have_tracks, total_tracks)
+        #info = api.get_artist_info(artist_id)
+
+        items.append( {
+            'label' : label,
+            #'replace_context_menu' : True,
+            #'context_menu' : context_menu_artist(artist_id, label),
+
+            'info' : {
+                'count' : i,
+                #'summary' : info['Summary'],
+                #'content' : info['Content'],
+            },
+
+            'path' : plugin.url_for('show_artist_albums', artist_id = artist_id),
+            'thumbnail' : None,
+        })
+            
     '''
     i = 0
     for i, movie in enumerate(movies):
@@ -184,7 +379,7 @@ def show_movies():
         'path': plugin.url_for(endpoint='add_new_wanted')
     })
     '''
-    return plugin.finish(items, sort_methods=sort_methods)
+    return plugin.finish(items, sort_methods=None)
 
 
 @plugin.route('/movies/add/')

@@ -61,6 +61,7 @@ class HeadphonesApi():
         self.use_https = use_https
         self.api_key = api_key
         if self.api_key:
+            '''
             self.log('trying api_key...')
             try:
                 json_data = self._api_call('app.available')
@@ -68,7 +69,8 @@ class HeadphonesApi():
                 self.log('trying api_key: failed')
             else:
                 self.log('trying api_key: success')
-                self.connected = True
+                '''
+            self.connected = True
         else:
             raise AuthenticationError
         if not self.connected:
@@ -103,10 +105,10 @@ class HeadphonesApi():
     def get_logs(self):
         pass # not working in API yet
 
-    def find_artist(self, name, limit):
-        if limit and limit > 0:
+    def find_artist(self, name, limit=0):
+        if limit > 0:
             params = { 'name' : name, 'limit' : limit, }
-        else
+        else:
             params = { 'name' : name, }
         return self._api_call('findArtist', params)
 
@@ -165,6 +167,9 @@ class HeadphonesApi():
     def get_artist_art(self, artistid):
         return self._api_call('getArtistArt', { 'id' : artistid, })
 
+    def get_album_art(self, albumid):
+        return self._api_call('getAlbumArt', { 'id' : albumid, })
+
     def get_artist_info(self, artistid):
         return self._api_call('getArtistInfo', { 'id' : artistid, })
 
@@ -187,29 +192,33 @@ class HeadphonesApi():
 ###############################################################################
 
     def _api_call(self, endpoint, params=None):
-        self.log('_api_call started with endpoint=%s, params=%s'
-                 % (endpoint, params))
+        #self.log('_api_call started with endpoint=%s, params=%s'
+        #         % (endpoint, params))
         url = '%s/api?apikey=%s&cmd=%s' % (self._api_url, self.api_key, endpoint)
         if params:
-            url += '?%s' % urlencode(params)
-        self.log('_api_call using url: %s' % url)
+            url += '&%s' % urlencode(params)
+        #self.log('_api_call using url: %s' % url)
         raw = urlopen(self._request(url)).read()
-        try:
-            json_data = json.loads(raw)
-        except HTTPError, error:
-            self.log('__urlopen HTTPError: %s' % error)
-            if error.fp.read() == 'Wrong API key used':
-                raise AuthenticationError
-            else:
+        if raw != 'OK':
+            try:
+                json_data = json.loads(raw)
+            except HTTPError, error:
+                self.log('__urlopen HTTPError: %s' % error)
+                if error.fp.read() == 'Wrong API key used':
+                    raise AuthenticationError
+                else:
+                    raise ConnectionError
+            except URLError, error:
+                self.log('__urlopen URLError: %s' % error)
                 raise ConnectionError
-        except URLError, error:
-            self.log('__urlopen URLError: %s' % error)
-            raise ConnectionError
-        self.log('_api_call response: %s' % repr(json_data))
-        return json_data
+        #self.log('_api_call response: %s' % repr(json_data))
+            return json_data
+        else:
+            return raw
 
     def _request(self, url):
         request = Request(url)
+        '''
         if self.ba_username and self.ba_password:
             request.add_header(
                 'Authorization',
@@ -218,6 +227,7 @@ class HeadphonesApi():
                     self.ba_password)
                 ).replace('\n', '')
             )
+            '''
         return request
 
     @property
