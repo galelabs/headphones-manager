@@ -215,7 +215,8 @@ def show_artist_albums(artist_id):
             if track.get('Location') != None:
                 havetracks += 1
 
-        label = album.get('AlbumTitle') + ' (%d / %d)' % (havetracks, totaltracks)
+        label = album.get('AlbumTitle') + ' (%d / %d) [ %s ]' % \
+                (havetracks, totaltracks, album.get('Status'))
 
         #thumbnail = '/opt/headphones/' + api.get_album_art(album_id)
         thumbnail = '/media/Media/Music_beets/' + artist_name + '/' + album_title + '/cover.jpg'
@@ -228,15 +229,15 @@ def show_artist_albums(artist_id):
         items.append( 
                 { 'label' : label, 
                     'thumbnail' : thumbnail, 
-                    'path' : plugin.url_for('add_wanted', album_id = album_id)
+                    'path' : plugin.url_for('add_album_to_wanted', album_id = album_id)
             }
         )
 
     return items
 
 @plugin.route('/add_wanted/<album_id>/')
-def add_album_to_wanted():
-    api.add_wanted
+def add_album_to_wanted(album_id):
+    pass
     
 
 @plugin.route('/artists/')
