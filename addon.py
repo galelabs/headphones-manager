@@ -92,8 +92,7 @@ def main_menu():
 @plugin.route('/search_artist/')
 def search_artist():
 
-    #instr = xbmcgui.Dialog().input('Search for Artist:')
-    instr = "The Bouncing Souls"
+    instr = xbmcgui.Dialog().input('Search for Artist:')
     
     if instr != '':
         plugin.set_content('artists')
@@ -109,31 +108,38 @@ def search_artist():
         ]
         sort_methods = ['artist', ]
         return plugin.finish(items, sort_methods = sort_methods)
-    pass
+    else:
+        raise Exception # FIXME
 
 @plugin.route('/add_artist/<artist_id>/')
 def add_artist(artist_id):
     api.add_artist(artist_id)
 
 
+# the update parameter allows us to not have to hit the database every time
 @plugin.route('/wanted/<update>/')
 def show_wanted(update=True):
     items = []
+    wanted_albums = []
     plugin.set_content('albums')
 
+    wanted = plugin.get_storage('wanted')
     if update:
-        wanted = plugin.get_storage('wanted')
+        # if we're updating through the API, clear the storage
         wanted.clear()
-        wanted_albums = api.get_wanted() # API hit
+        # and populate wanted_albums via the API
+        wanted_albums = api.get_wanted() 
     else:
-        wanted = plugin.get_storage('wanted')
+        # otherwise, populate wanted_albums from storage
+        wanted_albums[ value for value in wanted.values() ]
 
     for wanted_album in wanted_albums:
         album_title = wanted_album['AlbumTitle'].encode('utf-8')
         artist_name = wanted_album['ArtistName'].encode('utf-8')
         album_id = wanted_album['AlbumID'].encode('utf-8')
 
-        wanted[album_id] = wanted_album
+        if update:
+            wanted[album_id] = wanted_album
 
         print('Processing album: %s' % album_title)
 
@@ -173,9 +179,13 @@ def show_wanted(update=True):
                 }
             }, 
             )
-    wanted.sync()
+    if update:
+        wanted.sync()
     return plugin.finish(items, sort_methods = ['artist', 'album',])
 
+# FIXME: need a way to update the listing to remove the one we just removed
+# without going back to the top of the list or adding to the navigation 
+# history.
 @plugin.route('/wanted/<artist_name>/<album_title>/<album_id>/')
 def remove_wanted_album_dialog(artist_name, album_title, album_id):
     if xbmcgui.Dialog().yesno('Headphones Manager',
@@ -189,6 +199,7 @@ def remove_wanted_album_dialog(artist_name, album_title, album_id):
 
 @plugin.route('/queue/')
 def show_snatched():
+    # TODO: Implement this
     pass
 
 @plugin.route('/artist/<artist_id>/')
@@ -235,6 +246,7 @@ def show_artist_albums(artist_id):
 
     return items
 
+
 @plugin.route('/add_wanted/<album_id>/')
 def add_album_to_wanted(album_id):
     pass
@@ -242,58 +254,6 @@ def add_album_to_wanted(album_id):
 
 @plugin.route('/artists/')
 def show_artists():
-    def context_menu_movie(movie_id, movie_title):
-        return [
-            (
-                _('refresh_releases'),
-                'XBMC.RunPlugin(%s)' % plugin.url_for(
-                    endpoint='refresh_releases',
-                    library_id=movie_id
-                )
-            ),
-            (
-                _('delete_movie'),
-                'XBMC.RunPlugin(%s)' % plugin.url_for(
-                    endpoint='delete_movie',
-                    library_id=movie_id
-                )
-            ),
-            (
-                _('youtube_trailer'),
-                'XBMC.Container.Update(%s)' % YT_TRAILER_URL % movie_title
-            ),
-            (
-                _('full_refresh'),
-                'XBMC.RunPlugin(%s)' % plugin.url_for(
-                    endpoint='do_full_refresh'
-                )
-            ),
-            (
-                _('addon_settings'),
-                'XBMC.RunPlugin(%s)' % plugin.url_for(
-                    endpoint='open_settings'
-                )
-            ),
-        ]
-
-    def context_menu_empty():
-        return [
-            (
-                _('addon_settings'),
-                'XBMC.RunPlugin(%s)' % plugin.url_for(
-                    endpoint='open_settings'
-                )
-            ),
-            (
-                _('full_refresh'),
-                'XBMC.RunPlugin(%s)' % plugin.url_for(
-                    endpoint='do_full_refresh'
-                )
-            )
-        ]
-
-    releases = plugin.get_storage('releases')
-    releases.clear()
     items = []
     plugin.set_content('artists')
     artists = api.get_index()
@@ -331,103 +291,9 @@ def show_artists():
             'path' : plugin.url_for('show_artist_albums', artist_id = artist_id),
             'thumbnail' : None,
         })
-            
-    '''
-    i = 0
-    for i, movie in enumerate(movies):
-        info = movie['info']
-        movie_id = str(movie['_id'])
-        try:
-            label = info['titles'][0]
-        except:
-            label = repr(info['titles'][0])
-        status_label = movie['status']
-        label = u'[%s] %s' % (status_label, label)
-        releases[movie_id] = movie['releases']
-        items.append({
-            'label': label,
-            'thumbnail': (info['images']['poster'] or [''])[0],
-            'info': {
-                'count': i,
-                'originaltitle': info.get('original_title', ''),
-                'writer': ', '.join(info.get('writers', [])),
-                'director': ', '.join(info.get('directors', [])),
-                'code': info.get('imdb', ''),
-                'year': info.get('year', 0),
-                'plot': info.get('plot', ''),
-                'genre': ', '.join(info.get('genres', [])),
-                'tagline': info.get('tagline', ''),
-                'actors': info.get('actors', []),  # broken in XBMC Frodo
-                'rating': info.get('rating', {}).get('imdb', [0, 0])[0],
-                'votes': info.get('rating', {}).get('imdb', [0, 0])[1]
-            },
-            'replace_context_menu': True,
-            'context_menu': context_menu_movie(movie_id, label),
-            'properties': {
-                'fanart_image': (info['images'].get('backdrop') or [''])[0],
-            },
-            'path': plugin.url_for(
-                endpoint='show_releases',
-                library_id=movie_id
-            ),
-        })
-    releases.sync()
-    sort_methods = ['playlist_order', 'video_rating', 'video_year']
-    items.append({
-        'label': _('add_new_wanted'),
-        'replace_context_menu': True,
-        'context_menu': context_menu_empty(),
-        'path': plugin.url_for(endpoint='add_new_wanted')
-    })
-    '''
     return plugin.finish(items, sort_methods=None)
 
 
-@plugin.route('/movies/add/')
-def add_new_wanted():
-    if 'imdb_id' in plugin.request.args:
-        imdb_id = plugin.request.args['imdb_id'][0]
-        if imdb_id:
-            return add_new_wanted_by_id(imdb_id)
-    if 'title' in plugin.request.args:
-        search_title = plugin.request.args['title'][0]
-    else:
-        search_title = plugin.keyboard(heading=_('enter_movie_title'))
-    if search_title:
-        movies = api.search_wanted(search_title)
-        if not movies:
-            plugin.notify(msg=_('no_movie_found'))
-            return
-        items = [
-            '%s %s' % (movie['titles'][0], 
-            	('(%s)' % movie['year']) if movie.get('year', False) else '')
-            for movie in movies
-        ]
-        selected = xbmcgui.Dialog().select(
-            _('select_movie'), items
-        )
-        if selected >= 0:
-            selected_movie = movies[selected]
-            profile_id = ask_profile()
-            if profile_id:
-                success = api.add_wanted(
-                    profile_id=profile_id,
-                    movie_identifier=selected_movie['imdb']
-                )
-                if success:
-                    plugin.notify(msg=_('wanted_added'))
-
-
-@plugin.route('/movies/add-by-id/<imdb_id>')
-def add_new_wanted_by_id(imdb_id):
-    profile_id = ask_profile()
-    if profile_id:
-        success = api.add_wanted(
-            profile_id=profile_id,
-            movie_identifier=imdb_id
-        )
-        if success:
-            plugin.notify(msg=_('wanted_added'))
 
 
 def ask_profile():
@@ -445,73 +311,6 @@ def ask_profile():
         profile_id = plugin.get_setting('default_profile', str)
     return profile_id
 
-
-@plugin.route('/movies/<library_id>/releases/')
-def show_releases(library_id):
-
-    def context_menu(release_id):
-        return [
-            (
-                _('delete_release'),
-                'XBMC.RunPlugin(%s)' % plugin.url_for(
-                    endpoint='delete_release',
-                    release_id=release_id
-                )
-            ),
-            (
-                _('download_release'),
-                'XBMC.RunPlugin(%s)' % plugin.url_for(
-                    endpoint='download_release',
-                    release_id=release_id
-                )
-            ),
-            (
-                _('ignore_release'),
-                'XBMC.RunPlugin(%s)' % plugin.url_for(
-                    endpoint='ignore_release',
-                    release_id=release_id
-                )
-            ),
-            (
-                _('addon_settings'),
-                'XBMC.RunPlugin(%s)' % plugin.url_for(
-                    endpoint='open_settings'
-                )
-            ),
-        ]
-
-    def labelize(string_id, content):
-        return u'[B]%s[/B]: %s' % (_(string_id), content)
-
-    releases = plugin.get_storage('releases')
-    items = []
-    for release in releases[library_id]:
-        info = release['info']
-        t = info['type'][0].upper()
-        items.append({
-            'label': '[%s %d] %s' % (t, info['score'], info['name']),
-            'info': {
-                'size': info['provider'] * 1024,
-                'plot': '[CR]'.join((
-                    labelize('type', info['type']),
-                    labelize('provider', info['provider']),
-                    labelize('provider_extra', info['provider_extra']),
-                    labelize('age', info['age']),
-                    labelize('seed_leech', '%s/%s' % (
-                        info.get('seeders', '0'), info.get('leechers', '0'))
-                    ),
-                    labelize('size_mb', info['size']),
-                    labelize('description', info['description'])
-                )),
-            },
-            'replace_context_menu': True,
-            'context_menu': context_menu(release['_id']),
-            'path': plugin.url_for(
-                endpoint='show_release_help',
-                foo=release['_id']  # to have items with different URLs
-            ),
-        })
-    return plugin.finish(items)
 
 
 @plugin.route('/movies/all/refresh')
